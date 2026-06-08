@@ -267,7 +267,7 @@ def generate_segment(prompt, mode):
             if i < len(segments) - 1:
                 st.caption("⚠️ Загрузите и рассчитайте этот сегмент перед следующим")
         else:
-            st.markdown(f"✔️ Ваш сегмент готов: **{seg_name}**")
+            st.markdown(f"✔️ Ваш сегмент готов(после загрузки в платформу не забудьте выбрать Connection: greenplum-segments) : **{seg_name}**")
 
         st.caption(f"{MODES.get(mode, mode)}")
 
