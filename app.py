@@ -19,31 +19,6 @@ div.stDownloadButton > button:hover {
     background-color: #f0a0aa !important;
 }
 
-div[data-testid="stRadio"] > label { display: none; }
-
-div[data-testid="stRadio"] div[role="radiogroup"] {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-div[data-testid="stRadio"] label[data-baseweb="radio"] {
-    padding: 10px 12px;
-    border-radius: 8px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-div[data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) {
-    background-color: #FEF0F1;
-}
-
-div[data-testid="stRadio"] div[data-testid="stMarkdownContainer"] p {
-    font-size: 16px;
-    margin: 0;
-}
 
 .welcome-container {
     display: flex;
@@ -130,21 +105,28 @@ user    = st.session_state.user
 session = st.session_state.session
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
+mode = "channels"  # единственный активный режим
+
 with st.sidebar:
     st.markdown("### 🐾 PetSegment AI")
     st.caption(user.email)
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("**Тип сегмента**")
-    mode = st.radio(
-        label="",
-        options=["ads", "channels", "reports"],
-        format_func=lambda x: {
-            "ads":      "Реклама",
-            "channels": "Рассылки",
-            "reports":  "Отчёты"
-        }[x],
-        label_visibility="collapsed"
-    )
+    st.markdown("""
+<div style="display:flex;flex-direction:column;gap:4px;">
+    <div style="padding:10px 12px;border-radius:8px;background:#FEF0F1;display:flex;align-items:center;justify-content:space-between;">
+        <span style="font-size:16px;">Рассылки</span>
+    </div>
+    <div style="padding:10px 12px;border-radius:8px;display:flex;align-items:center;justify-content:space-between;opacity:0.4;cursor:not-allowed;">
+        <span style="font-size:16px;">Реклама</span>
+        <span style="font-size:11px;background:#e0e0e0;color:#666;padding:2px 7px;border-radius:10px;">скоро</span>
+    </div>
+    <div style="padding:10px 12px;border-radius:8px;display:flex;align-items:center;justify-content:space-between;opacity:0.4;cursor:not-allowed;">
+        <span style="font-size:16px;">Отчёты</span>
+        <span style="font-size:11px;background:#e0e0e0;color:#666;padding:2px 7px;border-radius:10px;">скоро</span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("Выйти", type="secondary", use_container_width=False):
         supabase.auth.sign_out()
@@ -236,59 +218,40 @@ def generate_segment(prompt, mode):
     st.session_state.failed_prompt = None
 
     yaml_text    = data.get("yaml", "")
-    segments     = data.get("segments", [])
+    segment_json = data.get("segment", "")
 
-    # Backward compat: if no segments array, use single segment
-    if not segments and data.get("segment"):
-        try:
-            config_parsed = pyyaml.safe_load(yaml_text)
-            seg_name = config_parsed.get("name", "segment") if config_parsed else "segment"
-        except:
-            seg_name = "segment"
-        segments = [{"name": seg_name, "json": data["segment"]}]
+    try:
+        config_parsed = pyyaml.safe_load(yaml_text)
+        seg_name = config_parsed.get("name", "segment") if config_parsed else "segment"
+    except:
+        config_parsed = None
+        seg_name = "segment"
 
-    if not segments:
+    slug = re.sub(r'[^a-zA-Z0-9а-яА-ЯёЁ]', '_', seg_name).strip('_')
+    channels = config_parsed.get("calculate_channels", []) if config_parsed else []
+    channels_str = ", ".join(channels) if channels else "—"
+
+    st.markdown(f"✔️ Ваш сегмент готов: **{seg_name}**")
+    st.caption(f"{MODES.get(mode, mode)} · {channels_str}")
+
+    if segment_json:
+        st.download_button(
+            label="Скачать сегмент",
+            data=segment_json,
+            file_name=f"{slug}.segment",
+            mime="application/json",
+            key=f"dl_new_{uuid.uuid4()}",
+        )
+    else:
         st.warning("Не удалось собрать сегмент — обратитесь к администратору")
-        st.session_state.messages.append({
-            "id": str(uuid.uuid4()), "role": "assistant",
-            "error": "Не удалось собрать сегмент", "segment": "",
-        })
-        return
 
-    multi = len(segments) > 1
-
-    for i, seg_item in enumerate(segments):
-        seg_name = seg_item.get("name", f"Сегмент {i+1}")
-        segment_json = seg_item.get("json", "")
-        slug = re.sub(r'[^a-zA-Z0-9а-яА-ЯёЁ]', '_', seg_name).strip('_')
-
-        if multi:
-            st.markdown(f"✔️ **Этап {i+1} из {len(segments)}:** {seg_name}")
-            if i < len(segments) - 1:
-                st.caption("⚠️ Загрузите и рассчитайте этот сегмент перед следующим")
-        else:
-            st.markdown(f"✔️ Ваш сегмент готов(после загрузки в платформу не забудьте выбрать Connection: greenplum-segments) : **{seg_name}**")
-
-        st.caption(f"{MODES.get(mode, mode)}")
-
-        if segment_json:
-            st.download_button(
-                label=f"Скачать {f'этап {i+1}' if multi else 'сегмент'}",
-                data=segment_json,
-                file_name=f"{slug}.segment",
-                mime="application/json",
-                key=f"dl_new_{uuid.uuid4()}",
-            )
-
-    # Save to messages (store all segments)
     st.session_state.messages.append({
         "id":         str(uuid.uuid4()),
         "role":       "assistant",
-        "name":       segments[0].get("name", "Сегмент"),
-        "slug":       re.sub(r'[^a-zA-Z0-9а-яА-ЯёЁ]', '_', segments[0].get("name", "segment")).strip('_'),
-        "mode_label": MODES.get(mode, mode),
-        "segments":   segments,
-        "segment":    segments[0].get("json", ""),
+        "name":       seg_name,
+        "slug":       slug,
+        "mode_label": f"{MODES.get(mode, mode)} · {channels_str}",
+        "segment":    segment_json,
     })
 
 
@@ -311,29 +274,9 @@ for msg in st.session_state.messages:
             if msg.get("error"):
                 st.error(msg["error"])
             else:
-                seg_list = msg.get("segments", [])
-                if seg_list:
-                    multi = len(seg_list) > 1
-                    for i, seg_item in enumerate(seg_list):
-                        seg_name = seg_item.get("name", f"Сегмент {i+1}")
-                        segment_json = seg_item.get("json", "")
-                        slug = re.sub(r'[^a-zA-Z0-9а-яА-ЯёЁ]', '_', seg_name).strip('_')
-                        if multi:
-                            st.markdown(f"✔️ **Этап {i+1} из {len(seg_list)}:** {seg_name}")
-                        else:
-                            st.markdown(f"✔️ Ваш сегмент готов: **{seg_name}**")
-                        st.caption(msg.get("mode_label", ""))
-                        if segment_json:
-                            st.download_button(
-                                label=f"Скачать {f'этап {i+1}' if multi else 'сегмент'}",
-                                data=segment_json,
-                                file_name=f"{slug}.segment",
-                                mime="application/json",
-                                key=f"dl_{msg['id']}_{i}",
-                            )
-                elif msg.get("segment"):
-                    st.markdown(f"✔️ Ваш сегмент готов: **{msg.get('name', 'Сегмент')}**")
-                    st.caption(msg.get("mode_label", ""))
+                st.markdown(f"✔️ Ваш сегмент готов: **{msg.get('name', 'Сегмент')}**")
+                st.caption(msg.get("mode_label", ""))
+                if msg.get("segment"):
                     st.download_button(
                         label="Скачать сегмент",
                         data=msg["segment"],
